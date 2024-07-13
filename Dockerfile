@@ -1,23 +1,14 @@
-# Start from the official Go image
-FROM golang:1.16-alpine
-
-# Set the Current Working Directory inside the container
+# Use amd64 version of Golang as the builder
+FROM --platform=linux/amd64 golang:1.22 AS builder
 WORKDIR /app
-
-# Copy go mod and sum files
-COPY go.mod go.sum ./
-
-# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
-RUN go mod download
-
-# Copy the source code into the container
 COPY . .
+RUN GOARCH=amd64 go mod download
+RUN GOARCH=amd64 go build -o main .
 
-# Build the Go app
-RUN go build -o main .
-
-# Expose port 8080 to the outside world
+# Use amd64 version of Ubuntu as the base image for the final container
+FROM --platform=linux/amd64 ubuntu:22.04
+WORKDIR /app
+COPY --from=builder /app/main .
+COPY global-bundle.pem /app/global-bundle.pem
 EXPOSE 8080
-
-# Command to run the executable
 CMD ["./main"]
