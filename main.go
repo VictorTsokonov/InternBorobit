@@ -5,10 +5,13 @@ import (
 	"InternBorobitApp/Repos"
 	"InternBorobitApp/Services"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -19,13 +22,38 @@ func main() {
 	// Get database connection details from environment variables
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
 	dbHost := os.Getenv("DB_HOST")
+	dbName := os.Getenv("DB_NAME")
 
-	mongoURI := fmt.Sprintf("mongodb://%s:%s@%s/%s", dbUser, dbPassword, dbHost, dbName)
+	log.Printf("DB_USER: %s", dbUser)
+	log.Printf("DB_PASSWORD: %s", dbPassword)
+	log.Printf("DB_HOST: %s", dbHost)
+	log.Printf("DB_NAME: %s", dbName)
+
+	if dbUser == "" || dbPassword == "" || dbHost == "" || dbName == "" {
+		log.Fatalf("Error: Required environment variables are not set")
+	}
+
+	// Load the CA certificate
+	caCert, err := ioutil.ReadFile("/app/global-bundle.pem")
+	if err != nil {
+		log.Fatalf("Failed to read CA certificate: %v", err)
+	}
+
+	// Create a CA certificate pool and add the CA certificate to it
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	// Configure TLS options
+	tlsConfig := &tls.Config{
+		RootCAs: caCertPool,
+	}
+
+	// Create a MongoDB client with the TLS options
+	mongoURI := fmt.Sprintf("mongodb://%s:%s@%s/%s?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false", dbUser, dbPassword, dbHost, dbName)
+	clientOptions := options.Client().ApplyURI(mongoURI).SetTLSConfig(tlsConfig)
 
 	// MongoDB connection
-	clientOptions := options.Client().ApplyURI(mongoURI)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client, err := mongo.Connect(ctx, clientOptions)
@@ -35,7 +63,7 @@ func main() {
 	defer func(client *mongo.Client, ctx context.Context) {
 		err := client.Disconnect(ctx)
 		if err != nil {
-
+			log.Fatalf("Failed to disconnect MongoDB: %v", err)
 		}
 	}(client, ctx)
 
